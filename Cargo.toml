@@ -8,11 +8,15 @@ ammonia = "4"
 anyhow = "1"
 axum = "0.8"
 clap = { version = "4", features = ["derive", "env"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
 html2text = "0.15"
 maud = { version = "0.27", features = ["axum"] }
 reqwest = "0.12"
 serde = { version = "1", features = ["derive"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6.6", features = ["fs"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

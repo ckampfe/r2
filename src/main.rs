@@ -3,19 +3,22 @@
 // - [ ] refresh individual feed
 // - [ ] refresh all feeds
 // - [ ] figure out why <hr> won't show up at bottom of entry
-// - [ ] when on feeds_show: navigate back to index
-// - [ ] when on entries_show: navigate back to feed
-// - [ ] when on entries_show: navigate to other entry in feed
-// - [ ] when on entries_show: the pub_date should look better
+// - [ ] on feeds_show: navigate back to index
+// - [ ] on entry_show: navigate back to feed
+// - [ ] on entry_show: navigate to other entry in feed
+// - [ ] on entry_show: the pub_date should look better
+// - [x] on entry_show: mark read
+// - [x] on entry_show: mark unread
 // - [ ] code to pick a default database location
 
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use clap::Parser;
 use maud::{PreEscaped, html};
+use serde::Deserialize;
 use sqlx::Connection;
 use sqlx::Executor;
 use sqlx::Sqlite;
@@ -155,12 +158,11 @@ async fn feed_show(
     struct Entry {
         id: i64,
         title: String,
-        author: String,
-        pub_date: String,
+        pub_date: chrono::DateTime<chrono::Utc>,
         // description: String,
         // content: String,
         link: String,
-        read_at: Option<String>,
+        read_at: Option<chrono::DateTime<chrono::Utc>>,
     }
 
     let state = state.lock().await;
@@ -183,7 +185,6 @@ async fn feed_show(
     select
         id,
         title,
-        author,
         pub_date,
         link,
         read_at
@@ -209,7 +210,6 @@ async fn feed_show(
                     thead {
                         tr {
                             th { "Title" }
-                            th { "Author" }
                             th { "Publication date" }
                             th { "Read at" }
                             th { "" }
@@ -223,12 +223,14 @@ async fn feed_show(
                                         (entry.title)
                                     }
                                 }
-                                td { (entry.author) }
                                 td { (entry.pub_date) }
-                                td { (entry.read_at.unwrap_or_else(String::new)) }
+                                td { (entry.read_at.map(|dt| dt.to_string()).unwrap_or_else(String::new)) }
                                 td {
-                                    a class="link" href=(entry.link) {
-                                        // (entry.link)
+                                    a
+                                        class="link"
+                                        href=(entry.link)
+                                        target="_blank"
+                                    {
                                         "View original"
                                     }
                                 }
@@ -254,7 +256,7 @@ async fn entry_show(
         content: String,
         pub_date: String,
         link: String,
-        read_at: String,
+        read_at: Option<String>,
     }
 
     let state = state.lock().await;
@@ -305,16 +307,143 @@ async fn entry_show(
 
                 div class="divider" {}
 
-                a class="link" href=(format!("/feeds/{}", entry.feed_id)) {
-                    "Back"
-                }
-
-                a class="link" href=(entry.link) {
-                    "View original"
+                div {
+                    a class="link" href=(format!("/feeds/{}", entry.feed_id)) {
+                        "Back"
+                    }
+                    @if entry.read_at.is_none() {
+                        a
+                            class="link"
+                            hx-put=(format!("/entries/{}?action=toggle_read_unread", entry_id))
+                            hx-swap="innerHTML"
+                        {
+                            "Mark read"
+                        }
+                    } @else {
+                        a
+                            class="link"
+                            hx-put=(format!("/entries/{}?action=toggle_read_unread", entry_id))
+                            hx-swap="innerHTML"
+                        {
+                            "Mark unread"
+                        }
+                    }
+                    a
+                        class="link"
+                        href=(entry.link)
+                        target="_blank"
+                    {
+                        "View original"
+                    }
                 }
             }
         }
     })
+}
+
+// 1. refresh entry
+// 2. mark read
+// 3. mark unread
+#[derive(Deserialize)]
+struct EntryUpdateParams {
+    action: EntryUpdateAction,
+}
+
+#[derive(Deserialize)]
+enum EntryUpdateAction {
+    #[serde(rename = "refresh")]
+    Refresh,
+    #[serde(rename = "toggle_read_unread")]
+    ToggleReadUnread,
+}
+
+async fn entry_update(
+    State(state): State<Arc<Mutex<AppState>>>,
+    Path(entry_id): Path<i64>,
+    Query(params): Query<EntryUpdateParams>,
+) -> Result<impl IntoResponse, AppError> {
+    match params.action {
+        EntryUpdateAction::Refresh => {
+            let state = state.lock().await;
+
+            let mut conn = state.pool.acquire().await?;
+
+            let (read_at,): (String,) = sqlx::query_as(
+                "
+                update entries
+                set read_at = ?1
+                where entry_id = ?2
+                returning read_at
+                ",
+            )
+            .bind(chrono::Utc::now())
+            .bind(entry_id)
+            .fetch_one(&mut *conn)
+            .await?;
+
+            dbg!(read_at);
+
+            Ok(html! {
+                "ok"
+            })
+        }
+        EntryUpdateAction::ToggleReadUnread => {
+            let state = state.lock().await;
+
+            let mut conn = state.pool.acquire().await?;
+
+            let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
+
+            let (read_at,): (Option<String>,) = sqlx::query_as(
+                "
+            select
+                read_at
+            from entries
+            where id = ?
+            ",
+            )
+            .bind(entry_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let out = if read_at.is_some() {
+                sqlx::query(
+                    "
+                update entries
+                set read_at = null
+                where id = ?
+                ",
+                )
+                .bind(entry_id)
+                .execute(&mut *tx)
+                .await?;
+
+                html! {
+                    "Mark read"
+                }
+            } else {
+                sqlx::query(
+                    "
+                update entries
+                set read_at = ?
+                where id = ?
+                ",
+                )
+                .bind(chrono::Utc::now())
+                .bind(entry_id)
+                .execute(&mut *tx)
+                .await?;
+
+                html! {
+                    "Mark unread"
+                }
+            };
+
+            tx.commit().await?;
+
+            Ok(out)
+        }
+    }
 }
 
 async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> {
@@ -463,7 +592,7 @@ async fn main() -> anyhow::Result<()> {
     let router = Router::new()
         .route("/", get(home))
         .route("/feeds/{feed_id}", get(feed_show))
-        .route("/entries/{entry_id}", get(entry_show))
+        .route("/entries/{entry_id}", get(entry_show).put(entry_update))
         .with_state(state)
         .fallback_service(asset_service);
 
