@@ -6,9 +6,9 @@
 // - [ ] refresh individual feed
 // - [ ] refresh all feeds
 // - [ ] figure out why <hr> won't show up at bottom of entry
-// - [ ] on feed_show: show read entries
-// - [ ] on feed_show: show unread entries
-// - [ ] on feed_show: show all entries
+// - [x] on feed_show: show read entries
+// - [x] on feed_show: show unread entries
+// - [x] on feed_show: show all entries
 // - [ ] on feed_show: navigate back to index
 // - [ ] on entry_show: navigate back to feed
 // - [ ] on entry_show: navigate to other entry in feed
@@ -142,10 +142,37 @@ async fn home(State(state): State<Arc<Mutex<AppState>>>) -> Result<impl IntoResp
     })
 }
 
+#[derive(Deserialize, Debug)]
+struct FeedShowParams {
+    entries_visibility: Option<EntriesVisibility>,
+}
+
+#[derive(Clone, Copy, Deserialize, Debug, Default, PartialEq)]
+enum EntriesVisibility {
+    #[default]
+    #[serde(rename = "unread")]
+    Unread,
+    #[serde(rename = "read")]
+    Read,
+    #[serde(rename = "all")]
+    All,
+}
+
+impl EntriesVisibility {
+    fn is_read(&self) -> bool {
+        *self == Self::Read
+    }
+
+    fn is_all(&self) -> bool {
+        *self == Self::All
+    }
+}
+
 #[instrument(skip(state))]
 async fn feed_show(
     State(state): State<Arc<Mutex<AppState>>>,
     Path(feed_id): Path<i64>,
+    Query(params): Query<FeedShowParams>,
 ) -> Result<impl IntoResponse, AppError> {
     // id INTEGER PRIMARY KEY AUTOINCREMENT,
     // feed_id INTEGER,
@@ -189,22 +216,56 @@ async fn feed_show(
     .fetch_one(&mut *conn)
     .await?;
 
-    let entries: Vec<Entry> = sqlx::query_as(
+    let mut qb: sqlx::QueryBuilder<Sqlite> = sqlx::QueryBuilder::new(
         "
-    select
-        id,
-        title,
-        pub_date,
-        link,
-        read_at
-    from entries
-    where feed_id = ?
-    order by pub_date desc
-    ",
-    )
-    .bind(feed_id)
-    .fetch_all(&mut *conn)
-    .await?;
+        select
+            id,
+            title,
+            pub_date,
+            link,
+            read_at
+        from entries
+        where feed_id = ",
+    );
+
+    qb.push_bind(feed_id);
+
+    if let Some(entries_visibility) = params.entries_visibility {
+        match entries_visibility {
+            EntriesVisibility::Unread => {
+                qb.push(" and read_at is null ");
+            }
+            EntriesVisibility::Read => {
+                qb.push(" and read_at is not null ");
+            }
+            EntriesVisibility::All => {}
+        }
+    } else {
+        qb.push(" and read_at is null ");
+    }
+
+    qb.push(" order by pub_date desc ");
+
+    let entries: Vec<Entry> = qb.build_query_as().fetch_all(&mut *conn).await?;
+
+    // dbg!(query);
+
+    // let entries: Vec<Entry> = sqlx::query_as(
+    //     query, //     "
+    //           // select
+    //           //     id,
+    //           //     title,
+    //           //     pub_date,
+    //           //     link,
+    //           //     read_at
+    //           // from entries
+    //           // where feed_id = ?
+    //           // order by pub_date desc
+    //           // ",
+    // )
+    // .bind(feed_id)
+    // .fetch_all(&mut *conn)
+    // .await?;
 
     Ok(layout! {
         html! {
@@ -212,15 +273,57 @@ async fn feed_show(
                 h1 {
                     (feed.title)
                 }
-                a class="link" href=(format!("/feeds/{feed_id}/refresh")) {
+                a class="link p-2" href=(format!("/feeds/{feed_id}/refresh")) {
                     "Refresh feed"
+                }
+                {
+                    @match params.entries_visibility {
+                        Some(v) => {
+                            @match v {
+                                EntriesVisibility::Unread => {
+                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
+                                        "View read entries"
+                                    }
+                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
+                                        "View all entries"
+                                    }
+                                },
+                                EntriesVisibility::Read => {
+                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=unread")) {
+                                        "View unread entries"
+                                    }
+                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
+                                        "View all entries"
+                                    }
+                                },
+                                EntriesVisibility::All => {
+                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=unread")) {
+                                        "View unread entries"
+                                    }
+                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
+                                        "View read entries"
+                                    }
+                                },
+                            }
+                        },
+                        None => {
+                            a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
+                                "View read entries"
+                            }
+                            a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
+                                "View all entries"
+                            }
+                        },
+                    }
                 }
                 table class="table" {
                     thead {
                         tr {
                             th { "Title" }
                             th { "Publication date" }
-                            th { "Read at" }
+                            @if params.entries_visibility.map(|v| v.is_read() || v.is_all()).unwrap_or(false) {
+                                th { "Read at" }
+                            }
                             th { "" }
                         }
                     }
@@ -233,7 +336,9 @@ async fn feed_show(
                                     }
                                 }
                                 td { (entry.pub_date) }
-                                td { (entry.read_at.map(|dt| dt.to_string()).unwrap_or_else(String::new)) }
+                                @if params.entries_visibility.map(|v| v.is_read() || v.is_all()).unwrap_or(false) {
+                                    td { (entry.read_at.map(|dt| dt.to_string()).unwrap_or_else(String::new)) }
+                                }
                                 td {
                                     a
                                         class="link"
