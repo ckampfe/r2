@@ -312,12 +312,12 @@ async fn entry_show(
                 div class="divider" {}
 
                 div {
-                    a class="link" href=(format!("/feeds/{}", entry.feed_id)) {
+                    a class="link p-2" href=(format!("/feeds/{}", entry.feed_id)) {
                         "Back"
                     }
                     @if entry.read_at.is_none() {
                         a
-                            class="link"
+                            class="link p-2"
                             hx-put=(format!("/entries/{}?action=toggle_read_unread", entry_id))
                             hx-swap="innerHTML"
                         {
@@ -325,7 +325,7 @@ async fn entry_show(
                         }
                     } @else {
                         a
-                            class="link"
+                            class="link p-2"
                             hx-put=(format!("/entries/{}?action=toggle_read_unread", entry_id))
                             hx-swap="innerHTML"
                         {
@@ -333,7 +333,7 @@ async fn entry_show(
                         }
                     }
                     a
-                        class="link"
+                        class="link p-2"
                         href=(entry.link)
                         target="_blank"
                     {
