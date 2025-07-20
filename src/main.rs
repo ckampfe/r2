@@ -6,6 +6,7 @@
 // - [ ] refresh individual feed
 // - [ ] refresh all feeds
 // - [ ] figure out why <hr> won't show up at bottom of entry
+// - [ ] search???
 // - [ ] on index: sort by arbitrary columns
 // - [x] on feed_show: show read entries
 // - [x] on feed_show: show unread entries
