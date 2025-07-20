@@ -1,3 +1,6 @@
+#![forbid(unsafe_code)]
+// TODO
+// - [ ] add a feed
 // - [ ] nav on desktop (drawer?)
 // - [ ] nav on mobile (???)
 // - [ ] refresh individual feed
