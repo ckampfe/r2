@@ -19,7 +19,7 @@
 // - [ ] on entry_show: the pub_date should look better
 // - [x] on entry_show: mark read
 // - [x] on entry_show: mark unread
-// - [ ] code to pick a default database location
+// - [ ] pick a default database location
 
 use axum::Router;
 use axum::extract::{Path, Query, State};
@@ -220,8 +220,9 @@ async fn feed_show(
     .fetch_one(&mut *conn)
     .await?;
 
-    let mut qb: sqlx::QueryBuilder<Sqlite> = sqlx::QueryBuilder::new(
-        "
+    let entries: Vec<Entry> = {
+        let mut qb: sqlx::QueryBuilder<Sqlite> = sqlx::QueryBuilder::new(
+            "
         select
             id,
             title,
@@ -230,126 +231,117 @@ async fn feed_show(
             read_at
         from entries
         where feed_id = ",
-    );
+        );
 
-    qb.push_bind(feed_id);
+        qb.push_bind(feed_id);
 
-    if let Some(entries_visibility) = params.entries_visibility {
-        match entries_visibility {
-            EntriesVisibility::Unread => {
-                qb.push(" and read_at is null ");
+        if let Some(entries_visibility) = params.entries_visibility {
+            match entries_visibility {
+                EntriesVisibility::Unread => {
+                    qb.push(" and read_at is null ");
+                }
+                EntriesVisibility::Read => {
+                    qb.push(" and read_at is not null ");
+                }
+                EntriesVisibility::All => {}
             }
-            EntriesVisibility::Read => {
-                qb.push(" and read_at is not null ");
-            }
-            EntriesVisibility::All => {}
+        } else {
+            qb.push(" and read_at is null ");
         }
-    } else {
-        qb.push(" and read_at is null ");
-    }
 
-    qb.push(" order by pub_date desc ");
+        qb.push(" order by pub_date desc ");
 
-    let entries: Vec<Entry> = qb.build_query_as().fetch_all(&mut *conn).await?;
-
-    // dbg!(query);
-
-    // let entries: Vec<Entry> = sqlx::query_as(
-    //     query, //     "
-    //           // select
-    //           //     id,
-    //           //     title,
-    //           //     pub_date,
-    //           //     link,
-    //           //     read_at
-    //           // from entries
-    //           // where feed_id = ?
-    //           // order by pub_date desc
-    //           // ",
-    // )
-    // .bind(feed_id)
-    // .fetch_all(&mut *conn)
-    // .await?;
+        qb.build_query_as().fetch_all(&mut *conn).await?
+    };
 
     Ok(layout! {
         html! {
             div class="p-2" {
-                h1 {
-                    (feed.title)
-                }
-                a class="link p-2" href=(format!("/feeds/{feed_id}/refresh")) {
-                    "Refresh feed"
-                }
-                {
-                    @match params.entries_visibility {
-                        Some(v) => {
-                            @match v {
-                                EntriesVisibility::Unread => {
-                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
-                                        "View read entries"
-                                    }
-                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
-                                        "View all entries"
-                                    }
-                                },
-                                EntriesVisibility::Read => {
-                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=unread")) {
-                                        "View unread entries"
-                                    }
-                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
-                                        "View all entries"
-                                    }
-                                },
-                                EntriesVisibility::All => {
-                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=unread")) {
-                                        "View unread entries"
-                                    }
-                                    a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
-                                        "View read entries"
-                                    }
-                                },
-                            }
-                        },
-                        None => {
-                            a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
-                                "View read entries"
-                            }
-                            a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
-                                "View all entries"
-                            }
-                        },
+                header class="flex flex-wrap justify-start" {
+                    h1 {
+                        (feed.title)
                     }
-                }
-                table class="table" {
-                    thead {
-                        tr {
-                            th { "Title" }
-                            th { "Publication date" }
-                            @if params.entries_visibility.map(|v| v.is_read() || v.is_all()).unwrap_or(false) {
-                                th { "Read at" }
-                            }
-                            th { "" }
+                    div {
+                        a class="link p-2" href=(format!("/feeds/{feed_id}/refresh")) {
+                            "Refresh feed"
                         }
                     }
-                    tbody {
-                        @for entry in entries {
+                    // class=ml-auto here is a hack to get things to go to the right
+                    // there is probably a better way to do this,
+                    // will probably reevaluate this nav functionality entirely
+                    div class="ml-auto" {
+                        @match params.entries_visibility {
+                            Some(v) => {
+                                @match v {
+                                    EntriesVisibility::Unread => {
+                                        a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
+                                            "View read entries"
+                                        }
+                                        a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
+                                            "View all entries"
+                                        }
+                                    },
+                                    EntriesVisibility::Read => {
+                                        a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=unread")) {
+                                            "View unread entries"
+                                        }
+                                        a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
+                                            "View all entries"
+                                        }
+                                    },
+                                    EntriesVisibility::All => {
+                                        a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=unread")) {
+                                            "View unread entries"
+                                        }
+                                        a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
+                                            "View read entries"
+                                        }
+                                    },
+                                }
+                            },
+                            None => {
+                                a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=read")) {
+                                    "View read entries"
+                                }
+                                a class="link p-2" href=(format!("/feeds/{feed_id}?entries_visibility=all")) {
+                                    "View all entries"
+                                }
+                            },
+                        }
+                    }
+                }
+                main {
+                    table class="table" {
+                        thead {
                             tr {
-                                td {
-                                    a class="link" href=(format!("/entries/{}", entry.id)) {
-                                        (entry.title)
-                                    }
-                                }
-                                td { (entry.pub_date) }
+                                th { "Title" }
+                                th class="hidden sm:table-cell" { "Publication date" }
                                 @if params.entries_visibility.map(|v| v.is_read() || v.is_all()).unwrap_or(false) {
-                                    td { (entry.read_at.map(|dt| dt.to_string()).unwrap_or_else(String::new)) }
+                                    th class="hidden sm:table-cell" { "Read at" }
                                 }
-                                td {
-                                    a
-                                        class="link"
-                                        href=(entry.link)
-                                        target="_blank"
-                                    {
-                                        "View original"
+                                th class="hidden sm:table-cell" { "" }
+                            }
+                        }
+                        tbody {
+                            @for entry in entries {
+                                tr {
+                                    td class="text-center sm:text-left" {
+                                        a class="link" href=(format!("/entries/{}", entry.id)) {
+                                            (entry.title)
+                                        }
+                                    }
+                                    td class="hidden sm:table-cell" { (entry.pub_date) }
+                                    @if params.entries_visibility.map(|v| v.is_read() || v.is_all()).unwrap_or(false) {
+                                        td class="hidden sm:table-cell" { (entry.read_at.map(|dt| dt.to_string()).unwrap_or_else(String::new)) }
+                                    }
+                                    td class="hidden sm:table-cell" {
+                                        a
+                                            class="link"
+                                            href=(entry.link)
+                                            target="_blank"
+                                        {
+                                            "View original"
+                                        }
                                     }
                                 }
                             }
@@ -370,7 +362,7 @@ async fn entry_show(
     struct Entry {
         feed_id: i64,
         title: String,
-        author: String,
+        // author: String,
         description: String,
         content: String,
         pub_date: String,
