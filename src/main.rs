@@ -247,6 +247,7 @@ async fn entry_show(
 ) -> Result<impl IntoResponse, AppError> {
     #[derive(FromRow)]
     struct Entry {
+        feed_id: i64,
         title: String,
         author: String,
         description: String,
@@ -263,6 +264,7 @@ async fn entry_show(
     let entry: Entry = sqlx::query_as(
         "
         select
+            feed_id,
             title,
             author,
             description,
@@ -302,6 +304,10 @@ async fn entry_show(
                 }
 
                 div class="divider" {}
+
+                a class="link" href=(format!("/feeds/{}", entry.feed_id)) {
+                    "Back"
+                }
 
                 a class="link" href=(entry.link) {
                     "View original"
