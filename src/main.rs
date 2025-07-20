@@ -6,7 +6,10 @@
 // - [ ] refresh individual feed
 // - [ ] refresh all feeds
 // - [ ] figure out why <hr> won't show up at bottom of entry
-// - [ ] on feeds_show: navigate back to index
+// - [ ] on feed_show: show read entries
+// - [ ] on feed_show: show unread entries
+// - [ ] on feed_show: show all entries
+// - [ ] on feed_show: navigate back to index
 // - [ ] on entry_show: navigate back to feed
 // - [ ] on entry_show: navigate to other entry in feed
 // - [ ] on entry_show: the pub_date should look better
