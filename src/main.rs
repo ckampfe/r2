@@ -39,21 +39,6 @@ macro_rules! layout {
                     integrity="sha384-Akqfrbj/HpNVo8k11SXBb6TlBWmXXlYQrCSqEWmyKJe+hDm3Z/B2WVG4smwBkRVm"
                     crossorigin="anonymous" {}
                 link href="/output.css" rel="stylesheet";
-                // link
-                //     href="https://cdn.jsdelivr.net/npm/daisyui@5"
-                //     rel="stylesheet"
-                //     type="text/css";
-                // script
-                //     src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" {}
-                // script
-                //     src="https://cdn.jsdelivr.net/npm/@tailwindcss/typography@0.5.16/src/index.min.js" {}
-                // style {
-                //     "
-                //     pre {
-                //         white-space: pre-wrap;
-                //     }
-                //     "
-                // }
             }
             body {
                 div class="grid container mx-auto px-4" {
