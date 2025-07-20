@@ -6,7 +6,7 @@
 // - [ ] refresh individual feed
 // - [ ] refresh all feeds
 // - [ ] figure out why <hr> won't show up at bottom of entry
-// - [ ] figure out a name for this, is russweb good?
+// - [x] figure out a name for this, is russweb good?
 // - [ ] search???
 // - [ ] on index: sort by arbitrary columns
 // - [x] on feed_show: show read entries
@@ -46,7 +46,7 @@ macro_rules! layout {
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title {
-                    "russweb"
+                    "r2"
                 }
                 script
                     src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.6/dist/htmx.min.js"
