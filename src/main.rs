@@ -6,6 +6,7 @@
 // - [ ] refresh individual feed
 // - [ ] refresh all feeds
 // - [ ] figure out why <hr> won't show up at bottom of entry
+// - [ ] figure out a name for this, is russweb good?
 // - [ ] search???
 // - [ ] on index: sort by arbitrary columns
 // - [x] on feed_show: show read entries
