@@ -1,0 +1,22 @@
+[package]
+name = "russweb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ammonia = "4"
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+html2text = "0.15"
+maud = { version = "0.27", features = ["axum"] }
+reqwest = "0.12"
+serde = { version = "1", features = ["derive"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6.6", features = ["fs"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
