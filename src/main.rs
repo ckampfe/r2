@@ -26,6 +26,7 @@ use sqlx::prelude::FromRow;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::instrument;
 
 macro_rules! layout {
     ($content:expr) => {
@@ -52,6 +53,7 @@ macro_rules! layout {
     };
 }
 
+#[instrument(skip(state))]
 async fn home(State(state): State<Arc<Mutex<AppState>>>) -> Result<impl IntoResponse, AppError> {
     #[derive(FromRow)]
     struct Feed {
@@ -134,6 +136,7 @@ async fn home(State(state): State<Arc<Mutex<AppState>>>) -> Result<impl IntoResp
     })
 }
 
+#[instrument(skip(state))]
 async fn feed_show(
     State(state): State<Arc<Mutex<AppState>>>,
     Path(feed_id): Path<i64>,
@@ -243,6 +246,7 @@ async fn feed_show(
     })
 }
 
+#[instrument(skip(state))]
 async fn entry_show(
     State(state): State<Arc<Mutex<AppState>>>,
     Path(entry_id): Path<i64>,
@@ -344,12 +348,12 @@ async fn entry_show(
 // 1. refresh entry
 // 2. mark read
 // 3. mark unread
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct EntryUpdateParams {
     action: EntryUpdateAction,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 enum EntryUpdateAction {
     #[serde(rename = "refresh")]
     Refresh,
@@ -357,6 +361,7 @@ enum EntryUpdateAction {
     ToggleReadUnread,
 }
 
+#[instrument(skip(state))]
 async fn entry_update(
     State(state): State<Arc<Mutex<AppState>>>,
     Path(entry_id): Path<i64>,
@@ -446,6 +451,7 @@ async fn entry_update(
     }
 }
 
+#[instrument(skip(conn))]
 async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> {
     // in_transaction(conn, |tx| {
     let mut tx = conn.begin().await?;
