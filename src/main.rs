@@ -708,14 +708,18 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(Mutex::new(AppState { pool, http_client }));
 
-    let asset_service = tower_http::services::ServeDir::new("assets");
+    let asset_service = tower_http::services::ServeDir::new("assets").precompressed_zstd();
 
     let router = Router::new()
         .route("/", get(home))
         .route("/feeds/{feed_id}", get(feed_show))
         .route("/entries/{entry_id}", get(entry_show).put(entry_update))
         .with_state(state)
+        .layer(tower_http::compression::CompressionLayer::new())
         .fallback_service(asset_service);
+
+    #[cfg(debug_assertions)]
+    let router = router.layer(tower_livereload::LiveReloadLayer::new());
 
     let listener = tokio::net::TcpListener::bind("localhost:4000").await?;
 
