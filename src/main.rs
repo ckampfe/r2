@@ -62,7 +62,9 @@ macro_rules! layout {
 }
 
 #[instrument(skip(state))]
-async fn home(State(state): State<Arc<Mutex<AppState>>>) -> Result<impl IntoResponse, AppError> {
+async fn feed_index(
+    State(state): State<Arc<Mutex<AppState>>>,
+) -> Result<impl IntoResponse, AppError> {
     #[derive(FromRow)]
     struct Feed {
         id: i64,
@@ -726,7 +728,7 @@ async fn main() -> anyhow::Result<()> {
     let asset_service = tower_http::services::ServeDir::new("assets").precompressed_zstd();
 
     let router = Router::new()
-        .route("/", get(home))
+        .route("/", get(feed_index))
         .route("/feeds/{feed_id}", get(feed_show))
         .route("/entries/{entry_id}", get(entry_show).put(entry_update))
         .with_state(state)
