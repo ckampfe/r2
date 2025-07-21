@@ -92,24 +92,6 @@ async fn home(State(state): State<Arc<Mutex<AppState>>>) -> Result<impl IntoResp
     .fetch_all(&mut *conn)
     .await?;
 
-    //   <div class="drawer lg:drawer-open">
-    //      <input id="my-drawer-2" type="checkbox" class="drawer-toggle" />
-    //   <div class="drawer-content flex flex-col items-center justify-center">
-    //     <!-- Page content here -->
-    //     <label for="my-drawer-2" class="btn btn-primary drawer-button lg:hidden">
-    //       Open drawer
-    //     </label>
-    //   </div>
-    //   <div class="drawer-side">
-    //     <label for="my-drawer-2" aria-label="close sidebar" class="drawer-overlay"></label>
-    //     <ul class="menu bg-base-200 text-base-content min-h-full w-80 p-4">
-    //       <!-- Sidebar content here -->
-    //       <li><a>Sidebar Item 1</a></li>
-    //       <li><a>Sidebar Item 2</a></li>
-    //     </ul>
-    //   </div>
-    // </div>
-
     Ok(layout! {
         html! {
             div class="p-4" {
@@ -196,11 +178,11 @@ async fn feed_show(
     struct Entry {
         id: i64,
         title: String,
-        pub_date: chrono::DateTime<chrono::Utc>,
+        pub_date: String,
         // description: String,
         // content: String,
         link: String,
-        read_at: Option<chrono::DateTime<chrono::Utc>>,
+        read_at: Option<String>,
     }
 
     let state = state.lock().await;
@@ -254,6 +236,20 @@ async fn feed_show(
 
     Ok(layout! {
         html! {
+            div class="breadcrumbs text-sm" {
+                ul {
+                    li {
+                        a href="/" {
+                            "Feeds"
+                        }
+                    }
+                    li {
+                        a href=(format!("/feeds/{}", feed_id)) {
+                            (feed.title)
+                        }
+                    }
+                }
+            }
             div class="p-2" {
                 header class="flex flex-wrap justify-start" {
                     h1 {
@@ -330,7 +326,7 @@ async fn feed_show(
                                     }
                                     td class="hidden sm:table-cell" { (entry.pub_date) }
                                     @if params.entries_visibility.map(|v| v.is_read() || v.is_all()).unwrap_or(false) {
-                                        td class="hidden sm:table-cell" { (entry.read_at.map(|dt| dt.to_string()).unwrap_or_else(String::new)) }
+                                        td class="hidden sm:table-cell" { (entry.read_at.unwrap_or_else(String::new)) }
                                     }
                                     td class="hidden sm:table-cell" {
                                         a
@@ -368,6 +364,11 @@ async fn entry_show(
         read_at: Option<String>,
     }
 
+    #[derive(FromRow)]
+    struct Feed {
+        title: String,
+    }
+
     let state = state.lock().await;
 
     let mut conn = state.pool.acquire().await?;
@@ -391,6 +392,18 @@ async fn entry_show(
     .fetch_one(&mut *conn)
     .await?;
 
+    let feed: Feed = sqlx::query_as(
+        "
+        select
+            title
+        from feeds
+        where id = ?
+        ",
+    )
+    .bind(entry.feed_id)
+    .fetch_one(&mut *conn)
+    .await?;
+
     let content = if entry.content.len() >= entry.description.len() {
         entry.content
     } else {
@@ -401,6 +414,25 @@ async fn entry_show(
 
     Ok(layout! {
         html! {
+            div class="breadcrumbs text-sm" {
+                ul {
+                    li {
+                        a href="/" {
+                            "Feeds"
+                        }
+                    }
+                    li {
+                        a href=(format!("/feeds/{}", entry.feed_id)) {
+                            (feed.title)
+                        }
+                    }
+                    li {
+                        a href=(format!("/entries/{}", entry_id)) {
+                            (entry.title)
+                        }
+                    }
+                }
+            }
             div class="grid grid-cols-1 justify-items-center p-4" {
                 div class="p-4" {
                     article class="prose" {
