@@ -71,6 +71,8 @@ async fn feed_index(
         title: String,
         unread_entries: i64,
         read_entries: i64,
+        most_recent_entry: String,
+        refreshed_at: String,
     }
 
     let state = state.lock().await;
@@ -83,7 +85,9 @@ async fn feed_index(
         feeds.id,
         feeds.title,
         sum(case when entries.read_at then 0 else 1 end) as unread_entries,
-        sum(case when entries.read_at then 1 else 0 end) as read_entries
+        sum(case when entries.read_at then 1 else 0 end) as read_entries,
+        max(coalesce(entries.pub_date, entries.inserted_at)) as most_recent_entry,
+        feeds.refreshed_at
     from feeds
     inner join entries
         on entries.feed_id = feeds.id
@@ -115,8 +119,8 @@ async fn feed_index(
                                         (feed.title)
                                     }
                                 }
-                                td { "123" }
-                                td { "1213" }
+                                td { (feed.most_recent_entry) }
+                                td { (feed.refreshed_at) }
                                 td { (feed.unread_entries) }
                                 td { (feed.read_entries) }
                             }
