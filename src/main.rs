@@ -12,13 +12,14 @@
 // - [x] on feed_show: show read entries
 // - [x] on feed_show: show unread entries
 // - [x] on feed_show: show all entries
-// - [ ] on feed_show: navigate back to index
+// - [x] on feed_show: navigate back to index
 // - [ ] on feed_show: sort on arbitrary columns
-// - [ ] on entry_show: navigate back to feed
-// - [ ] on entry_show: navigate to other entry in feed
+// - [x] on entry_show: navigate back to feed
+// - [x] on entry_show: navigate to other entry in feed
 // - [ ] on entry_show: the pub_date should look better
 // - [x] on entry_show: mark read
 // - [x] on entry_show: mark unread
+// - [ ] on entry_show: make sure entry text wraps on mobile
 // - [ ] pick a default database location
 
 use axum::Router;
