@@ -21,14 +21,16 @@
 // - [x] on entry_show: mark unread
 // - [ ] on entry_show: make sure entry text wraps on mobile
 // - [ ] pick a default database location
+// - [x] rust-embed for css
 
 use axum::Router;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use clap::Parser;
 use maud::{PreEscaped, html};
+use rust_embed::Embed;
 use serde::Deserialize;
 use sqlx::prelude::FromRow;
 use sqlx::{Connection, Executor, Sqlite};
@@ -51,7 +53,7 @@ macro_rules! layout {
                     src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.6/dist/htmx.min.js"
                     integrity="sha384-Akqfrbj/HpNVo8k11SXBb6TlBWmXXlYQrCSqEWmyKJe+hDm3Z/B2WVG4smwBkRVm"
                     crossorigin="anonymous" {}
-                link href="/output.css" rel="stylesheet";
+                link href="/dist/output.css" rel="stylesheet";
             }
             body {
                 div class="grid container mx-auto px-4" {
@@ -595,6 +597,16 @@ async fn entry_update(
     }
 }
 
+async fn static_handler(uri: Uri) -> impl IntoResponse {
+    let mut path = uri.path().trim_start_matches('/').to_string();
+
+    if path.starts_with("dist/") {
+        path = path.replace("dist/", "");
+    }
+
+    StaticFile(path)
+}
+
 #[instrument(skip(conn))]
 async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> {
     let mut tx = conn.begin().await?;
@@ -691,6 +703,33 @@ where
     }
 }
 
+#[derive(Embed)]
+#[folder = "dist/"]
+struct Asset;
+
+pub struct StaticFile<T>(pub T);
+
+impl<T> IntoResponse for StaticFile<T>
+where
+    T: Into<String>,
+{
+    fn into_response(self) -> Response {
+        let path = self.0.into();
+
+        match Asset::get(path.as_str()) {
+            Some(content) => {
+                let mime = mime_guess::from_path(path).first_or_octet_stream();
+                (
+                    [(axum::http::header::CONTENT_TYPE, mime.as_ref())],
+                    content.data,
+                )
+                    .into_response()
+            }
+            None => (StatusCode::NOT_FOUND, "404 Not Found").into_response(),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct AppState {
     pool: sqlx::Pool<Sqlite>,
@@ -730,15 +769,13 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(Mutex::new(AppState { pool, http_client }));
 
-    let asset_service = tower_http::services::ServeDir::new("assets").precompressed_zstd();
-
     let router = Router::new()
         .route("/", get(feed_index))
         .route("/feeds/{feed_id}", get(feed_show))
         .route("/entries/{entry_id}", get(entry_show).put(entry_update))
+        .route("/dist/{*file}", get(static_handler))
         .with_state(state)
-        .layer(tower_http::compression::CompressionLayer::new())
-        .fallback_service(asset_service);
+        .layer(tower_http::compression::CompressionLayer::new());
 
     #[cfg(debug_assertions)]
     let router = router.layer(tower_livereload::LiveReloadLayer::new());

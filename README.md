@@ -4,7 +4,6 @@
 
 ```sh
 $ npm i
-$ npx @tailwindcss/cli -i style.css -o assets/output.css -m  
-$ zstd assets/output.css
+$ npx @tailwindcss/cli -i style.css -o dist/output.css -m  
 $ cargo run -- --database=database_name.db
 ```
