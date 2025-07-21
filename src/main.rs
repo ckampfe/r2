@@ -590,17 +590,14 @@ async fn entry_update(
 
 #[instrument(skip(conn))]
 async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> {
-    // in_transaction(conn, |tx| {
     let mut tx = conn.begin().await?;
 
-    // let schema_version: u64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
     let (schema_version,): (u64,) = sqlx::query_as("PRAGMA user_version")
         .fetch_optional(&mut *tx)
         .await?
         .unwrap_or((0,));
 
     if schema_version == 0 {
-        // tx.pragma_update(None, "user_version", 1)?;
         tx.execute("PRAGMA user_version=1").await?;
 
         sqlx::query(
@@ -618,7 +615,6 @@ async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> 
         .execute(&mut *tx)
         .await?;
 
-        // tx.execute(
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -637,7 +633,6 @@ async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> 
         .execute(&mut *tx)
         .await?;
 
-        // tx.execute(
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS entries_feed_id_and_pub_date_and_inserted_at_index
         ON entries (feed_id, pub_date, inserted_at)",
@@ -647,7 +642,6 @@ async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> 
     }
 
     if schema_version <= 1 {
-        // tx.pragma_update(None, "user_version", 2)?;
         tx.execute("PRAGMA user_version=2").await?;
 
         sqlx::query("ALTER TABLE feeds ADD COLUMN latest_etag TEXT")
@@ -656,7 +650,6 @@ async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> 
     }
 
     if schema_version <= 2 {
-        // tx.pragma_update(None, "user_version", 3)?;
         tx.execute("PRAGMA user_version=3").await?;
 
         sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS feeds_feed_link ON feeds (feed_link)")
