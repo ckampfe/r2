@@ -105,24 +105,24 @@ async fn feed_index(
                     thead {
                         tr {
                             th { "Feed" }
-                            th { "Most recent entry" }
-                            th { "Last refreshed" }
-                            th { "Unread entries" }
-                            th { "Read entries" }
+                            th class="hidden sm:table-cell" { "Most recent entry" }
+                            th class="hidden sm:table-cell" { "Last refreshed" }
+                            th class="hidden sm:table-cell" { "Unread entries" }
+                            th class="hidden sm:table-cell" { "Read entries" }
                         }
                     }
                     tbody {
                         @for feed in feeds {
                             tr {
-                                td {
+                                td class="text-center sm:text-left" {
                                     a class="link" href=(format!("/feeds/{}", feed.id)) {
                                         (feed.title)
                                     }
                                 }
-                                td { (feed.most_recent_entry) }
-                                td { (feed.refreshed_at) }
-                                td { (feed.unread_entries) }
-                                td { (feed.read_entries) }
+                                td class="hidden sm:table-cell" { (feed.most_recent_entry) }
+                                td class="hidden sm:table-cell" { (feed.refreshed_at) }
+                                td class="hidden sm:table-cell" { (feed.unread_entries) }
+                                td class="hidden sm:table-cell" { (feed.read_entries) }
                             }
                         }
                     }
