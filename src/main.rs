@@ -19,7 +19,7 @@
 // - [ ] on entry_show: the pub_date should look better
 // - [x] on entry_show: mark read
 // - [x] on entry_show: mark unread
-// - [ ] on entry_show: make sure entry text wraps on mobile
+// - [x] on entry_show: make sure entry text wraps on mobile
 // - [ ] pick a default database location
 // - [x] rust-embed for css
 
