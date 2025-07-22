@@ -512,7 +512,7 @@ async fn entry_update(
 
             let mut conn = state.pool.acquire().await?;
 
-            let (read_at,): (String,) = sqlx::query_as(
+            let (_read_at,): (String,) = sqlx::query_as(
                 "
                 update entries
                 set read_at = ?1
@@ -524,8 +524,6 @@ async fn entry_update(
             .bind(entry_id)
             .fetch_one(&mut *conn)
             .await?;
-
-            dbg!(read_at);
 
             Ok(html! {
                 "ok"
@@ -607,7 +605,6 @@ async fn feed_create(
 
         let body = response.bytes().await?;
 
-        // response.
         let feed = feed_rs::parser::parse(&*body)?;
 
         let mut conn = {
@@ -638,8 +635,6 @@ async fn feed_create(
         })
         .fetch_one(&mut *tx)
         .await?;
-
-        dbg!(feed_id);
 
         for entry in &feed.entries {
             sqlx::query(
