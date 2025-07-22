@@ -618,6 +618,9 @@ async fn do_feed_create(
 
     let feed_url = Url::parse(s).map_err(|_| FeedCreateError::BadInput)?;
 
+    // TODO here:
+    // check if feeds already contain the given link and error if so
+
     let http_client = {
         let state = state.lock().await;
         state.http_client.clone()
