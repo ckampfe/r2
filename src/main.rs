@@ -176,17 +176,6 @@ async fn feed_show(
     Path(feed_id): Path<i64>,
     Query(params): Query<FeedShowParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    // id INTEGER PRIMARY KEY AUTOINCREMENT,
-    // feed_id INTEGER,
-    // title TEXT,
-    // author TEXT,
-    // pub_date TIMESTAMP,
-    // description TEXT,
-    // content TEXT,
-    // link TEXT,
-    // read_at TIMESTAMP,
-    // inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    // updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     #[derive(FromRow)]
     struct Feed {
         title: String,
@@ -197,8 +186,6 @@ async fn feed_show(
         id: i64,
         title: String,
         pub_date: String,
-        // description: String,
-        // content: String,
         link: String,
         read_at: Option<String>,
     }
@@ -500,9 +487,6 @@ async fn entry_show(
     })
 }
 
-// 1. refresh entry
-// 2. mark read
-// 3. mark unread
 #[derive(Deserialize, Debug)]
 struct EntryUpdateParams {
     action: EntryUpdateAction,
@@ -673,29 +657,8 @@ async fn feed_create(
             .execute(&mut *tx)
             .await?;
         }
-        //     "CREATE TABLE IF NOT EXISTS entries (
-        // id INTEGER PRIMARY KEY AUTOINCREMENT,
-        // feed_id INTEGER,
-        // title TEXT,
-        // author TEXT,
-        // pub_date TIMESTAMP,
-        // description TEXT,
-        // content TEXT,
-        // link TEXT,
-        // read_at TIMESTAMP,
-        // inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        // updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
         tx.commit().await?;
-
-        // id INTEGER PRIMARY KEY AUTOINCREMENT,
-        //     title TEXT,
-        //     feed_link TEXT,
-        //     link TEXT,
-        //     feed_kind TEXT,
-        //     refreshed_at TIMESTAMP,
-        //     inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        //     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
         let mut headers = HeaderMap::new();
         headers.insert("HX-Location", "/".parse().unwrap());
