@@ -22,6 +22,7 @@
 // - [x] on entry_show: make sure entry text wraps on mobile
 // - [ ] pick a default database location
 // - [x] rust-embed for css
+// - [ ] set up CI
 
 use ammonia::Url;
 use axum::Router;
