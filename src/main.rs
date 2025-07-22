@@ -680,10 +680,6 @@ async fn do_feed_create(
 
     tx.commit().await?;
 
-    // let mut headers = HeaderMap::new();
-    // headers.insert("HX-Location", "/".parse().unwrap());
-    // Ok((headers, ""))
-    // }
     Ok(())
 }
 
