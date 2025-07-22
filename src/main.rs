@@ -23,11 +23,12 @@
 // - [ ] pick a default database location
 // - [x] rust-embed for css
 
+use ammonia::Url;
 use axum::Router;
 use axum::extract::{Path, Query, State};
-use axum::http::{StatusCode, Uri};
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use clap::Parser;
 use maud::{PreEscaped, html};
 use rust_embed::Embed;
@@ -104,6 +105,13 @@ async fn feed_index(
     Ok(layout! {
         html! {
             div class="p-4" {
+                a
+                    class="link"
+                    hx-post="/feeds"
+                    hx-prompt="Feed URL"
+                {
+                    "Add feed"
+                }
                 table class="table" {
                     thead {
                         tr {
@@ -597,6 +605,24 @@ async fn entry_update(
     }
 }
 
+async fn feed_create(
+    headers: HeaderMap,
+    // State(state): State<Arc<Mutex<AppState>>>,
+) -> Result<impl IntoResponse, AppError> {
+    if let Some(feed) = headers.get("HX-Prompt")
+        && let Ok(s) = feed.to_str()
+        && let Ok(feed_url) = Url::parse(s)
+    {
+        dbg!(feed_url);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("HX-Location", "/".parse().unwrap());
+        Ok((headers, ""))
+    } else {
+        panic!()
+    }
+}
+
 async fn static_handler(uri: Uri) -> impl IntoResponse {
     let mut path = uri.path().trim_start_matches('/').to_string();
 
@@ -771,6 +797,7 @@ async fn main() -> anyhow::Result<()> {
 
     let router = Router::new()
         .route("/", get(feed_index))
+        .route("/feeds", post(feed_create))
         .route("/feeds/{feed_id}", get(feed_show))
         .route("/entries/{entry_id}", get(entry_show).put(entry_update))
         .route("/dist/{*file}", get(static_handler))
