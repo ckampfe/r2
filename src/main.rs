@@ -599,7 +599,7 @@ async fn entry_update(
 #[derive(Debug, Error)]
 enum FeedCreateError {
     #[error("bad input")]
-    BadInput,
+    BadInput(&'static str),
     #[error("network error")]
     NetworkError(#[from] reqwest::Error),
     #[error("feed parse error")]
@@ -612,30 +612,47 @@ async fn do_feed_create(
     headers: HeaderMap,
     State(state): State<Arc<Mutex<AppState>>>,
 ) -> Result<(), FeedCreateError> {
-    let feed = headers.get("HX-Prompt").ok_or(FeedCreateError::BadInput)?;
+    let feed = headers.get("HX-Prompt").ok_or(FeedCreateError::BadInput(
+        "somehow the HX-Prompt header did not get included",
+    ))?;
 
-    let s = feed.to_str().map_err(|_| FeedCreateError::BadInput)?;
+    let s = feed
+        .to_str()
+        .map_err(|_| FeedCreateError::BadInput("could not convert HX-Prompt value to str"))?;
 
-    let feed_url = Url::parse(s).map_err(|_| FeedCreateError::BadInput)?;
+    let feed_url =
+        Url::parse(s).map_err(|_| FeedCreateError::BadInput("could not parse str as URL"))?;
 
-    // TODO here:
-    // check if feeds already contain the given link and error if so
+    let state = state.lock().await;
+    let mut conn = state.pool.acquire().await?;
+    let http_client = state.http_client.clone();
+    drop(state);
 
-    let http_client = {
-        let state = state.lock().await;
-        state.http_client.clone()
-    };
+    let already_exists: Option<(bool,)> = sqlx::query_as(
+        "
+    select
+        1
+    from feeds
+    where feed_link = ?",
+    )
+    .bind(feed_url.as_str())
+    .fetch_optional(&mut *conn)
+    .await?;
 
-    let response = http_client.get(feed_url).send().await?.error_for_status()?;
+    if already_exists.is_some() {
+        return Err(FeedCreateError::BadInput("Feed already exists"));
+    }
+
+    let response = http_client
+        .get(feed_url.clone())
+        .send()
+        .await?
+        .error_for_status()?;
 
     let body = response.bytes().await?;
 
     let feed = feed_rs::parser::parse(&*body)?;
 
-    let mut conn = {
-        let state = state.lock().await;
-        state.pool.acquire().await?
-    };
     let mut tx = conn.begin().await?;
 
     #[derive(FromRow)]
@@ -645,12 +662,13 @@ async fn do_feed_create(
 
     let Feed { id: feed_id } = sqlx::query_as(
         "
-        insert into feeds (title, link, feed_kind)
-        values (?1, ?2, ?3)
+        insert into feeds (title, link, feed_link, feed_kind)
+        values (?1, ?2, ?3, ?4)
         returning id",
     )
     .bind(&feed.title.as_ref().unwrap().content)
     .bind(&feed.links.first().unwrap().href)
+    .bind(feed_url.as_str())
     .bind(match feed.feed_type {
         feed_rs::model::FeedType::Atom => "Atom",
         feed_rs::model::FeedType::JSON => "JSON",
@@ -695,7 +713,7 @@ async fn feed_create(
         }
         Err(e) => {
             let (status_code, error_message) = match e {
-                FeedCreateError::BadInput => (StatusCode::BAD_REQUEST, "Bad URL given".to_string()),
+                FeedCreateError::BadInput(s) => (StatusCode::BAD_REQUEST, s.to_string()),
                 FeedCreateError::NetworkError(e) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Unable to fetch remote feed: {e}"),
@@ -799,14 +817,6 @@ async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> 
         tx.execute("PRAGMA user_version=3").await?;
 
         sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS feeds_feed_link ON feeds (feed_link)")
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    if schema_version <= 3 {
-        tx.execute("PRAGMA user_version=4").await?;
-
-        sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS feeds_link ON feeds (link)")
             .execute(&mut *tx)
             .await?;
     }
