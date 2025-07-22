@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 // TODO
-// - [ ] add a feed
+// - [x] add a feed
+// - [x] errors for adding a feed
 // - [ ] nav on desktop (drawer?)
 // - [ ] nav on mobile (???)
 // - [ ] refresh individual feed
@@ -38,6 +39,7 @@ use sqlx::prelude::FromRow;
 use sqlx::{Connection, Executor, Sqlite};
 use std::str::FromStr;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::instrument;
 
@@ -60,6 +62,11 @@ macro_rules! layout {
             body {
                 div class="grid container mx-auto px-4" {
                     ($content)
+                }
+                script {
+                    "document.body.addEventListener('feedCreateError', function(evt){
+                        alert(evt.detail.value);
+                    })"
                 }
             }
         }
@@ -110,6 +117,7 @@ async fn feed_index(
                     class="link"
                     hx-post="/feeds"
                     hx-prompt="Feed URL"
+                    hx-swap="none"
                 {
                     "Add feed"
                 }
@@ -588,78 +596,132 @@ async fn entry_update(
     }
 }
 
-async fn feed_create(
+#[derive(Debug, Error)]
+enum FeedCreateError {
+    #[error("bad input")]
+    BadInput,
+    #[error("network error")]
+    NetworkError(#[from] reqwest::Error),
+    #[error("feed parse error")]
+    FeedParseError(#[from] feed_rs::parser::ParseFeedError),
+    #[error("database error")]
+    DatabaseError(#[from] sqlx::Error),
+}
+
+async fn do_feed_create(
     headers: HeaderMap,
     State(state): State<Arc<Mutex<AppState>>>,
-) -> Result<impl IntoResponse, AppError> {
-    if let Some(feed) = headers.get("HX-Prompt")
-        && let Ok(s) = feed.to_str()
-        && let Ok(feed_url) = Url::parse(s)
-    {
-        let http_client = {
-            let state = state.lock().await;
-            state.http_client.clone()
-        };
+) -> Result<(), FeedCreateError> {
+    let feed = headers.get("HX-Prompt").ok_or(FeedCreateError::BadInput)?;
 
-        let response = http_client.get(feed_url).send().await?.error_for_status()?;
+    let s = feed.to_str().map_err(|_| FeedCreateError::BadInput)?;
 
-        let body = response.bytes().await?;
+    let feed_url = Url::parse(s).map_err(|_| FeedCreateError::BadInput)?;
 
-        let feed = feed_rs::parser::parse(&*body)?;
+    let http_client = {
+        let state = state.lock().await;
+        state.http_client.clone()
+    };
 
-        let mut conn = {
-            let state = state.lock().await;
-            state.pool.acquire().await?
-        };
-        let mut tx = conn.begin().await?;
+    let response = http_client.get(feed_url).send().await?.error_for_status()?;
 
-        #[derive(FromRow)]
-        struct Feed {
-            id: i64,
-        }
+    let body = response.bytes().await?;
 
-        let Feed { id: feed_id } = sqlx::query_as(
-            "
+    let feed = feed_rs::parser::parse(&*body)?;
+
+    let mut conn = {
+        let state = state.lock().await;
+        state.pool.acquire().await?
+    };
+    let mut tx = conn.begin().await?;
+
+    #[derive(FromRow)]
+    struct Feed {
+        id: i64,
+    }
+
+    let Feed { id: feed_id } = sqlx::query_as(
+        "
         insert into feeds (title, link, feed_kind)
         values (?1, ?2, ?3)
         returning id",
-        )
-        .bind(&feed.title.as_ref().unwrap().content)
-        .bind(&feed.links.first().unwrap().href)
-        .bind(match feed.feed_type {
-            feed_rs::model::FeedType::Atom => "Atom",
-            feed_rs::model::FeedType::JSON => "JSON",
-            feed_rs::model::FeedType::RSS0 => "RSS",
-            feed_rs::model::FeedType::RSS1 => "RSS",
-            feed_rs::model::FeedType::RSS2 => "RSS",
-        })
-        .fetch_one(&mut *tx)
-        .await?;
+    )
+    .bind(&feed.title.as_ref().unwrap().content)
+    .bind(&feed.links.first().unwrap().href)
+    .bind(match feed.feed_type {
+        feed_rs::model::FeedType::Atom => "Atom",
+        feed_rs::model::FeedType::JSON => "JSON",
+        feed_rs::model::FeedType::RSS0 => "RSS",
+        feed_rs::model::FeedType::RSS1 => "RSS",
+        feed_rs::model::FeedType::RSS2 => "RSS",
+    })
+    .fetch_one(&mut *tx)
+    .await?;
 
-        for entry in &feed.entries {
-            sqlx::query(
-                "
+    for entry in &feed.entries {
+        sqlx::query(
+            "
             insert into entries (feed_id, title, author, pub_date, content, link)
             values (?1, ?2, ?3, ?4, ?5, ?6)
             ",
-            )
-            .bind(feed_id)
-            .bind(entry.title.as_ref().map(|title| &title.content))
-            .bind(entry.authors.first().map(|author| &author.name))
-            .bind(entry.published)
-            .bind(entry.content.as_ref().map(|content| &content.body))
-            .bind(entry.links.first().map(|link| &link.href))
-            .execute(&mut *tx)
-            .await?;
+        )
+        .bind(feed_id)
+        .bind(entry.title.as_ref().map(|title| &title.content))
+        .bind(entry.authors.first().map(|author| &author.name))
+        .bind(entry.published)
+        .bind(entry.content.as_ref().map(|content| &content.body))
+        .bind(entry.links.first().map(|link| &link.href))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    // let mut headers = HeaderMap::new();
+    // headers.insert("HX-Location", "/".parse().unwrap());
+    // Ok((headers, ""))
+    // }
+    Ok(())
+}
+
+async fn feed_create(
+    headers: HeaderMap,
+    state: State<Arc<Mutex<AppState>>>,
+) -> Result<impl IntoResponse, AppError> {
+    match do_feed_create(headers, state).await {
+        Ok(()) => {
+            let mut headers = HeaderMap::new();
+            headers.insert("HX-Location", "/".parse().unwrap());
+            Ok((headers, "").into_response())
         }
+        Err(e) => {
+            let (status_code, error_message) = match e {
+                FeedCreateError::BadInput => (StatusCode::BAD_REQUEST, "Bad URL given".to_string()),
+                FeedCreateError::NetworkError(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Unable to fetch remote feed: {e}"),
+                ),
+                FeedCreateError::FeedParseError(e) => (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("Could not parse feed: {e}"),
+                ),
+                FeedCreateError::DatabaseError(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {e}"),
+                ),
+            };
 
-        tx.commit().await?;
+            let mut headers = HeaderMap::new();
 
-        let mut headers = HeaderMap::new();
-        headers.insert("HX-Location", "/".parse().unwrap());
-        Ok((headers, ""))
-    } else {
-        Err(anyhow::anyhow!("could not parse URL").into())
+            headers.insert(
+                "HX-Trigger",
+                axum::Json(format!("{{\"feedCreateError\":\"{error_message}\"}}"))
+                    .parse()
+                    .unwrap(),
+            );
+
+            Ok((status_code, headers, "").into_response())
+        }
     }
 }
 
@@ -738,6 +800,14 @@ async fn initialize_db(conn: &mut sqlx::SqliteConnection) -> anyhow::Result<()> 
         tx.execute("PRAGMA user_version=3").await?;
 
         sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS feeds_feed_link ON feeds (feed_link)")
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if schema_version <= 3 {
+        tx.execute("PRAGMA user_version=4").await?;
+
+        sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS feeds_link ON feeds (link)")
             .execute(&mut *tx)
             .await?;
     }

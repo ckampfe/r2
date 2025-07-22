@@ -1835,6 +1835,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "sqlx",
+ "thiserror",
  "tokio",
  "tower-http",
  "tower-livereload",
