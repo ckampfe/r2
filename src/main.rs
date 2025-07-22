@@ -608,19 +608,100 @@ async fn entry_update(
 
 async fn feed_create(
     headers: HeaderMap,
-    // State(state): State<Arc<Mutex<AppState>>>,
+    State(state): State<Arc<Mutex<AppState>>>,
 ) -> Result<impl IntoResponse, AppError> {
     if let Some(feed) = headers.get("HX-Prompt")
         && let Ok(s) = feed.to_str()
         && let Ok(feed_url) = Url::parse(s)
     {
-        dbg!(feed_url);
+        let http_client = {
+            let state = state.lock().await;
+            state.http_client.clone()
+        };
+
+        let response = http_client.get(feed_url).send().await?.error_for_status()?;
+
+        let body = response.bytes().await?;
+
+        // response.
+        let feed = feed_rs::parser::parse(&*body)?;
+
+        let mut conn = {
+            let state = state.lock().await;
+            state.pool.acquire().await?
+        };
+        let mut tx = conn.begin().await?;
+
+        #[derive(FromRow)]
+        struct Feed {
+            id: i64,
+        }
+
+        let Feed { id: feed_id } = sqlx::query_as(
+            "
+        insert into feeds (title, link, feed_kind)
+        values (?1, ?2, ?3)
+        returning id",
+        )
+        .bind(&feed.title.as_ref().unwrap().content)
+        .bind(&feed.links.first().unwrap().href)
+        .bind(match feed.feed_type {
+            feed_rs::model::FeedType::Atom => "Atom",
+            feed_rs::model::FeedType::JSON => "JSON",
+            feed_rs::model::FeedType::RSS0 => "RSS",
+            feed_rs::model::FeedType::RSS1 => "RSS",
+            feed_rs::model::FeedType::RSS2 => "RSS",
+        })
+        .fetch_one(&mut *tx)
+        .await?;
+
+        dbg!(feed_id);
+
+        for entry in &feed.entries {
+            sqlx::query(
+                "
+            insert into entries (feed_id, title, author, pub_date, content, link)
+            values (?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+            )
+            .bind(feed_id)
+            .bind(entry.title.as_ref().map(|title| &title.content))
+            .bind(entry.authors.first().map(|author| &author.name))
+            .bind(entry.published)
+            .bind(entry.content.as_ref().map(|content| &content.body))
+            .bind(entry.links.first().map(|link| &link.href))
+            .execute(&mut *tx)
+            .await?;
+        }
+        //     "CREATE TABLE IF NOT EXISTS entries (
+        // id INTEGER PRIMARY KEY AUTOINCREMENT,
+        // feed_id INTEGER,
+        // title TEXT,
+        // author TEXT,
+        // pub_date TIMESTAMP,
+        // description TEXT,
+        // content TEXT,
+        // link TEXT,
+        // read_at TIMESTAMP,
+        // inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        // updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+        tx.commit().await?;
+
+        // id INTEGER PRIMARY KEY AUTOINCREMENT,
+        //     title TEXT,
+        //     feed_link TEXT,
+        //     link TEXT,
+        //     feed_kind TEXT,
+        //     refreshed_at TIMESTAMP,
+        //     inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        //     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
         let mut headers = HeaderMap::new();
         headers.insert("HX-Location", "/".parse().unwrap());
         Ok((headers, ""))
     } else {
-        panic!()
+        Err(anyhow::anyhow!("could not parse URL").into())
     }
 }
 
