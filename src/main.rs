@@ -4,23 +4,26 @@
 // - [x] errors for adding a feed
 // - [ ] nav on desktop (drawer?)
 // - [ ] nav on mobile (???)
-// - [ ] refresh individual feed
-// - [ ] refresh all feeds
 // - [ ] figure out why <hr> won't show up at bottom of entry
 // - [x] figure out a name for this, is russweb good?
 // - [ ] search???
+// - [ ] on_index: refresh all feeds
 // - [ ] on index: sort by arbitrary columns
 // - [x] on feed_show: show read entries
 // - [x] on feed_show: show unread entries
 // - [x] on feed_show: show all entries
 // - [x] on feed_show: navigate back to index
+// - [x] on feed_show: refresh feed
+// - [ ] on feed_show: errors for refreshing a feed
 // - [ ] on feed_show: sort on arbitrary columns
+// - [ ] on feed_show: delete entry
 // - [x] on entry_show: navigate back to feed
 // - [x] on entry_show: navigate to other entry in feed
 // - [ ] on entry_show: the pub_date should look better
 // - [x] on entry_show: mark read
 // - [x] on entry_show: mark unread
 // - [x] on entry_show: make sure entry text wraps on mobile
+// - [ ] on entry_show: delete entry
 // - [ ] pick a default database location
 // - [x] rust-embed for css
 // - [ ] set up CI
@@ -30,13 +33,14 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post, put};
 use clap::Parser;
 use maud::{PreEscaped, html};
 use rust_embed::Embed;
 use serde::Deserialize;
 use sqlx::prelude::FromRow;
 use sqlx::{Connection, Executor, Sqlite};
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
@@ -52,6 +56,14 @@ macro_rules! layout {
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title {
                     "r2"
+                }
+                style {
+                    "
+                    .fade-me-out.htmx-swapping {
+                        opacity: 0;
+                        transition: opacity 3s ease-out;
+                    }
+                    "
                 }
                 script
                     src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.6/dist/htmx.min.js"
@@ -269,7 +281,15 @@ async fn feed_show(
                         (feed.title)
                     }
                     div {
-                        a class="link p-2" href=(format!("/feeds/{feed_id}/refresh")) {
+                        a
+                            id="refresher"
+                            class="link p-2"
+                            hx-put=(format!("/feeds/{feed_id}/refresh"))
+                            // the parent div is the target
+                            hx-target="closest :not(#refresher)"
+                            // so we append "afterend" the parent div
+                            hx-swap="afterend"
+                        {
                             "Refresh feed"
                         }
                     }
@@ -742,6 +762,123 @@ async fn feed_create(
     }
 }
 
+// TODO do similar error handling as adding feed
+//
+// get feed entries
+// TODO v2: if cache miss
+// get links for challenger entries
+// get links for existing entries
+// set = remote_entries - existing_entries
+// in transaction:
+// - for entry in set: insert
+// - update feed refreshed_at
+// - TODO v2: update_feed_etag
+async fn feed_refresh(
+    state: State<Arc<Mutex<AppState>>>,
+    Path(feed_id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let state = state.lock().await;
+    let mut conn = state.pool.acquire().await?;
+
+    let (feed_link,): (String,) = sqlx::query_as(
+        "
+    select
+        feed_link
+    from feeds
+    where id = ?",
+    )
+    .bind(feed_id)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    let http_client = state.http_client.clone();
+
+    let challenger_feed = http_client
+        .get(feed_link)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+
+    let challenger_feed = feed_rs::parser::parse(&*challenger_feed)?;
+
+    let existing_entries_links: HashSet<String> = sqlx::query_as(
+        "
+    select
+        link
+    from entries
+    where feed_id = ?",
+    )
+    .bind(feed_id)
+    .fetch_all(&mut *conn)
+    .await?
+    .iter()
+    .map(|(link,): &(String,)| link.clone())
+    .collect();
+
+    let new_entries = challenger_feed
+        .entries
+        .iter()
+        .filter(|entry| !existing_entries_links.contains(&entry.links.first().unwrap().href));
+
+    let mut tx = conn.begin().await?;
+
+    let mut new_entries_count = 0;
+
+    for entry in new_entries {
+        sqlx::query(
+            "
+            insert into entries (feed_id, title, author, pub_date, content, link)
+            values (?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+        )
+        .bind(feed_id)
+        .bind(entry.title.as_ref().map(|title| &title.content))
+        .bind(entry.authors.first().map(|author| &author.name))
+        .bind(entry.published)
+        .bind(entry.content.as_ref().map(|content| &content.body))
+        .bind(entry.links.first().map(|link| &link.href))
+        .execute(&mut *tx)
+        .await?;
+
+        new_entries_count += 1;
+    }
+
+    sqlx::query(
+        "
+        update feeds
+        set refreshed_at = ?
+        where id = ?",
+    )
+    .bind(chrono::Utc::now())
+    .bind(feed_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(html! {
+        div
+            id="refresh-result"
+            class="fade-me-out"
+            // after 5 seconds, fire the request
+            hx-trigger="load delay:5s"
+            // allow the swap to take 3 seconds.
+            // this is the same amount of time as the transition.
+            hx-swap="delete swap:3s"
+            // empty response endpoint
+            hx-delete="/empty"
+        {
+            (format!("added {new_entries_count} new entries"))
+        }
+    })
+}
+
+async fn empty() -> impl IntoResponse {
+    ""
+}
+
 async fn static_handler(uri: Uri) -> impl IntoResponse {
     let mut path = uri.path().trim_start_matches('/').to_string();
 
@@ -918,8 +1055,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(feed_index))
         .route("/feeds", post(feed_create))
         .route("/feeds/{feed_id}", get(feed_show))
+        .route("/feeds/{feed_id}/refresh", put(feed_refresh))
         .route("/entries/{entry_id}", get(entry_show).put(entry_update))
         .route("/dist/{*file}", get(static_handler))
+        .route("/empty", delete(empty))
         .with_state(state)
         .layer(tower_http::compression::CompressionLayer::new());
 
