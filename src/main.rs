@@ -26,7 +26,7 @@
 // - [ ] on entry_show: delete entry
 // - [ ] pick a default database location
 // - [x] rust-embed for css
-// - [ ] set up CI
+// - [x] set up CI
 
 use ammonia::Url;
 use axum::Router;
