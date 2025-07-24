@@ -813,8 +813,8 @@ async fn feed_refresh(
     .bind(feed_id)
     .fetch_all(&mut *conn)
     .await?
-    .iter()
-    .map(|(link,): &(String,)| link.clone())
+    .into_iter()
+    .map(|(link,): (String,)| link)
     .collect();
 
     let new_entries = challenger_feed
